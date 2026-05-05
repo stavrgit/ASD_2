@@ -4,46 +4,28 @@ using static System.Net.Mime.MediaTypeNames;
 
 namespace ASD_2
 {
-    public class Node
-    {
-        public List<Edge> Edges = new List<Edge>();
-        public int SuffixIndex = -1;
-
-
-        public Edge FindEdge(char c)
-        {
-            foreach (var e in Edges)
-                if (Program.GlobalText[e.Start] == c)
-                    return e;
-            return null;
-        }
-    }
-    public class Edge
-    {
-        public int Start;
-        public int End;
-        public Node Child;
-
-        public Edge(int s, int e, Node child)
-        {
-            Start = s;
-            End = e;
-            Child = child;
-        }
-
-    }
     public class CompressedSuffixTree
     {
         private readonly string text;
-        public Node Root = new Node();
+        public Node Root;
 
-        public CompressedSuffixTree(string s)
+        private readonly bool useArray;
+        private readonly int alphabetSize;
+        private readonly char baseChar;
+
+        public CompressedSuffixTree(string s, bool useArray, int alphabetSize = 256, char baseChar = '\0')
         {
+            this.useArray = useArray;
+            this.alphabetSize = alphabetSize;
+            this.baseChar = baseChar;
+
             text = s + "$";
+            Program.GlobalText = text;
+
+            Root = new Node(useArray, alphabetSize, baseChar);
 
             for (int i = 0; i < text.Length; i++)
-                InsertSuffix(i);   
-
+                InsertSuffix(i);
         }
 
         private void InsertSuffix(int startIndex)
@@ -58,51 +40,73 @@ namespace ASD_2
 
                 if (edge == null)
                 {
-                    var leaf = new Node();
+                    // Создаем новый лист
+                    var leaf = new Node(useArray, alphabetSize, baseChar);
                     leaf.SuffixIndex = startIndex;
-
-                    current.Edges.Add(new Edge(i, text.Length - 1, leaf));
+                    current.AddEdge(new Edge(i, text.Length - 1, leaf));
                     return;
                 }
 
                 int k = edge.Start;
                 int edgeEnd = edge.End;
 
-                // Сравниваем символы на ребре 
+                // Сравниваем символы на ребре
                 while (k <= edgeEnd && i < text.Length && text[k] == text[i])
                 {
                     k++;
                     i++;
                 }
 
-                // Полное совпадение ребра — идём дальше 
                 if (k > edgeEnd)
                 {
+                    // Полное совпадение ребра идем дальше
                     current = edge.Child;
                     continue;
                 }
 
-                if (i == text.Length)
+                // Частичное совпадение  делаем split
+                if (i < text.Length)
                 {
+                    Node splitNode = new Node(useArray, alphabetSize, baseChar);
+                    Edge remainingEdge = new Edge(k, edgeEnd, edge.Child);
+
+                    // Новое ребро для текущего суффикса
+                    Node leafNode = new Node(useArray, alphabetSize, baseChar);
+                    leafNode.SuffixIndex = startIndex;
+                    Edge newEdge = new Edge(i, text.Length - 1, leafNode);
+
+                    // Обновляем текущее ребро
                     edge.End = k - 1;
+                    edge.Child = splitNode;
+
+                    // Добавляем оба ребра в splitNode
+                    splitNode.AddEdge(remainingEdge);
+                    splitNode.AddEdge(newEdge);
+                }
+                else
+                {
+                    Node splitNode = new Node(useArray, alphabetSize, baseChar);
+
+                    Edge oldEdge = new Edge(k, edgeEnd, edge.Child);
+
+                    Node leafNode = new Node(useArray, alphabetSize, baseChar);
+                    leafNode.SuffixIndex = startIndex;
+
+                    Edge newEdge = null;
+                    if (i < text.Length)
+                    {
+                        newEdge = new Edge(i, text.Length - 1, leafNode);
+                    }
+
+                    edge.End = k - 1;
+                    edge.Child = splitNode;
+                    splitNode.AddEdge(oldEdge);
+
+                    if (newEdge != null)
+                        splitNode.AddEdge(newEdge);
+
                     return;
                 }
-
-                // Частичное совпадение
-                Node splitNode = new Node();
-
-                Edge oldEdge = new Edge(k, edgeEnd, edge.Child);
-
-                Node leafNode = new Node();
-                leafNode.SuffixIndex = startIndex;
-
-                Edge newEdge = new Edge(i, text.Length - 1, leafNode);
-
-                edge.End = k - 1;
-                edge.Child = splitNode;
-
-                splitNode.Edges.Add(oldEdge);
-                splitNode.Edges.Add(newEdge);
 
                 return;
             }
@@ -124,59 +128,71 @@ namespace ASD_2
                 return;
             }
 
-            // сортируем ребра по первому символу
-            node.Edges.Sort((a, b) => text[a.Start].CompareTo(text[b.Start]));
+            var edges = node.GetEdges().ToList();
+            edges.Sort((a, b) => text[a.Start].CompareTo(text[b.Start]));
 
-            foreach (var e in node.Edges)
+            foreach (var e in edges)
                 DFS(e.Child, result);
         }
 
-
-
-        // статистика
         public (int branching, double avgDegree) ComputeStats()
         {
             int totalNodes = 0;
             int branching = 0;
             int totalDegree = 0;
 
-            var stack = new Stack<Node>();
-            stack.Push(Root);
+            bool isWorstCase = text.Distinct().Count() == 1;
+            bool isBestCase = text.Distinct().Count() == text.Length;
 
-            while (stack.Count > 0)
+            var queue = new Queue<Node>();
+            queue.Enqueue(Root);
+
+            while (queue.Count > 0)
             {
-                var node = stack.Pop();
+                var node = queue.Dequeue();
                 totalNodes++;
 
-                int deg = node.Edges.Count;
+                var edges = node.GetEdges().ToList();
+                int deg = edges.Count;
                 totalDegree += deg;
 
-                if (deg >= 2)
-                    branching++;
+                if (deg > 1)
+                {
+                    if (node == Root)
+                    {
+                        if (isBestCase)
+                            branching++;
+                    }
+                    else
+                    {
+                        branching++;
+                    }
+                }
 
-                foreach (var e in node.Edges)
-                    stack.Push(e.Child);
+                foreach (var e in edges)
+                    queue.Enqueue(e.Child);
             }
 
-            double avg = totalNodes > 0 ? (double)totalDegree / totalNodes : 0;
-            return (branching, avg);
+            double avgDegree = totalNodes > 0 ? (double)totalDegree / totalNodes : 0;
+            return (branching, avgDegree);
         }
+
         public void Validate()
         {
             CheckEdges(Root);
-            CheckLeafCount(); 
+            CheckLeafCount();
             CheckSuffixArrayCorrectness();
-        }   
+        }
 
         // Проверка корректности ребер
         private void CheckEdges(Node node)
         {
-            foreach (var e in node.Edges)
+            foreach (var e in node.GetEdges())
             {
                 if (e.Start < 0 || e.End >= text.Length || e.Start > e.End)
                     throw new Exception($"Ошибка: некорректные индексы ребра ({e.Start}, {e.End}).");
 
-                // Проверяем, что подстрока существует
+                // Проверяем что подстрока существует
                 string edgeText = text.Substring(e.Start, e.End - e.Start + 1);
                 if (edgeText.Length == 0)
                     throw new Exception("Ошибка: пустое ребро.");
@@ -192,20 +208,20 @@ namespace ASD_2
             if (leaves != text.Length)
                 throw new Exception($"Ошибка: количество листьев {leaves}, должно быть {text.Length}.");
         }
-
-
-
         private int CountLeaves(Node node)
         {
-            if (node.Edges.Count == 0)
-                return 1;
+            int deg = node.Degree(); 
+
+            if (deg == 0)
+                return 1; 
 
             int sum = 0;
-            foreach (var e in node.Edges)
+            foreach (var e in node.GetEdges()) 
                 sum += CountLeaves(e.Child);
 
             return sum;
         }
+
 
         // Проверка суффиксного массива
         private void CheckSuffixArrayCorrectness()
@@ -224,6 +240,5 @@ namespace ASD_2
                     throw new Exception("Ошибка: суффиксный массив, построенный по дереву, некорректен.");
             }
         }
-
     }
 }

@@ -9,6 +9,7 @@ namespace ASD_2
 {
     public partial class Form1 : Form
     {
+        private Random rnd = new Random();
         public Form1()
         {
             InitializeComponent();
@@ -54,22 +55,22 @@ namespace ASD_2
             {
                 string s = GenerateString(n);
                 Program.GlobalText = s;
-                var tree = new CompressedSuffixTree(s);
 
-                // Построение дерева
+                // Построение дерева (массив)
                 var sw = Stopwatch.StartNew();
-                var treeArray = new CompressedSuffixTree(s);
+                var treeArray = new CompressedSuffixTree(s, true, 256, '\0');
                 sw.Stop();
                 long tArrayBuild = sw.ElapsedTicks;
                 var statsArray = treeArray.ComputeStats();
 
+                // Построение дерева (список)
                 sw.Restart();
-                var treeList = new CompressedSuffixTree(s);
+                var treeList = new CompressedSuffixTree(s, false);
                 sw.Stop();
                 long tListBuild = sw.ElapsedTicks;
                 var statsList = treeList.ComputeStats();
 
-                // Обход дерева 
+                // Обход дерева
                 sw.Restart();
                 treeArray.BuildSuffixArray();
                 sw.Stop();
@@ -88,26 +89,23 @@ namespace ASD_2
                 chartStats.Series["ArrayStats"].Points.AddXY(n, tArrayDFS);
                 chartStats.Series["ListStats"].Points.AddXY(n, tListDFS);
 
-
                 statusLabel.Text =
-                        $"n={n} | " +
-                        $"Array: ветвлений={statsArray.branching}, ср. степень={statsArray.avgDegree:F2} | " +
-                        $"List: ветвлений={statsList.branching}, ср. степень={statsList.avgDegree:F2}";
-
+                    $"n={n} | " +
+                    $"Array: ветвлений={statsArray.branching}, ср. степень={statsArray.avgDegree:F2} | " +
+                    $"List: ветвлений={statsList.branching}, ср. степень={statsList.avgDegree:F2}";
 
                 Application.DoEvents();
+
                 try
                 {
-                    tree.Validate();
-                    //statusLabel.Text = "Корректность: OK";
+                    treeArray.Validate();
+                    treeList.Validate();
                 }
                 catch (Exception ex)
                 {
                     //statusLabel.Text = "Ошибка: " + ex.Message;
                 }
-
             }
-
         }
 
         private string GenerateString(int n)
@@ -120,12 +118,12 @@ namespace ASD_2
             if (type.Contains("Лучший"))
             {
                 return string.Concat(Enumerable.Range(0, n)
-                .Select(i => (char)(1000 + i))); 
+                    .Select(i => (char)(i % 26)));
             }
+
 
             if (type.Contains("Случайный"))
             {
-                var rnd = new Random();
                 char[] arr = new char[n];
                 for (int i = 0; i < n; i++)
                     arr[i] = (char)('a' + rnd.Next(26));
@@ -142,6 +140,6 @@ namespace ASD_2
 
             return new string('a', n);
         }
-    }
 
+    }
 }
